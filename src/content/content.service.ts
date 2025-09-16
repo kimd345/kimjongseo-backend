@@ -90,6 +90,32 @@ export class ContentService {
     return queryBuilder.getMany();
   }
 
+  async findByMenuPath(path: string): Promise<Content[]> {
+    const pathSegments = path.split('/').filter(Boolean);
+
+    const queryBuilder = this.contentRepository
+      .createQueryBuilder('content')
+      .leftJoinAndSelect('content.menu', 'menu')
+      .where('content.status = :status', { status: PublishStatus.PUBLISHED });
+
+    if (pathSegments.length === 1) {
+      // Single level - find by direct menu URL
+      queryBuilder.andWhere('menu.url = :url', { url: pathSegments[0] });
+    } else {
+      // Multi-level - need to traverse the path
+      // For now, we'll use the last segment as the menu URL
+      // This could be enhanced to support full path traversal
+      queryBuilder.andWhere('menu.url = :url', {
+        url: pathSegments[pathSegments.length - 1],
+      });
+    }
+
+    return queryBuilder
+      .orderBy('content.sortOrder', 'ASC')
+      .addOrderBy('content.createdAt', 'DESC')
+      .getMany();
+  }
+
   async update(
     id: number,
     updateContentDto: UpdateContentDto,

@@ -71,4 +71,17 @@ export class MenuController {
   seedDefaultMenus() {
     return this.menuService.seedDefaultMenus();
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('reorder')
+  updateMenuOrder(
+    @Body() reorderData: { id: number; sortOrder: number; parentId?: number }[],
+  ) {
+    return this.menuService.updateMenuOrder(reorderData);
+  }
+
+  @Get('by-path/:path')
+  findByPath(@Param('path') path: string) {
+    return this.menuService.findByPath(path);
+  }
 }

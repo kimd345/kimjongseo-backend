@@ -53,6 +53,11 @@ export class ContentController {
     return this.contentService.findBySlug(menuUrl);
   }
 
+  @Get('by-menu-path/:path')
+  findByMenuPath(@Param('path') path: string) {
+    return this.contentService.findByMenuPath(path);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.contentService.findOne(id);
