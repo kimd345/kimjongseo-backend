@@ -1,4 +1,4 @@
-// src/menu/menu.service.ts
+// src/menu/menu.service.ts - Updated with path resolution
 import {
   Injectable,
   NotFoundException,
@@ -91,17 +91,57 @@ export class MenuService {
     return menu;
   }
 
+  // NEW: Find menu by path (supports nested paths)
+  async findByPath(path: string): Promise<Menu> {
+    const pathSegments = path.split('/').filter(Boolean);
+
+    if (pathSegments.length === 0) {
+      throw new BadRequestException('Invalid path');
+    }
+
+    let currentMenu: Menu | null = null;
+
+    // Traverse the path segment by segment
+    for (let i = 0; i < pathSegments.length; i++) {
+      const segment = pathSegments[i];
+
+      if (i === 0) {
+        // Find root menu (no parent)
+        currentMenu = await this.menuRepository.findOne({
+          where: { url: segment, parentId: null },
+          relations: ['parent', 'children'],
+        });
+      } else {
+        // Find child menu
+        if (!currentMenu) {
+          throw new NotFoundException(`Menu path ${path} not found`);
+        }
+
+        currentMenu = await this.menuRepository.findOne({
+          where: { url: segment, parentId: currentMenu.id },
+          relations: ['parent', 'children'],
+        });
+      }
+
+      if (!currentMenu) {
+        throw new NotFoundException(`Menu path ${path} not found`);
+      }
+    }
+
+    if (!currentMenu) {
+      throw new NotFoundException(`Menu path ${path} not found`);
+    }
+
+    return currentMenu;
+  }
+
   async update(id: number, updateMenuDto: UpdateMenuDto): Promise<Menu> {
     // Prevent circular references
     if (updateMenuDto.parentId === id) {
       throw new BadRequestException('Menu cannot be its own parent');
     }
 
-    // Validate parent exists if parentId is provided and not null
-    if (
-      updateMenuDto.parentId !== null &&
-      updateMenuDto.parentId !== undefined
-    ) {
+    if (updateMenuDto.parentId) {
       const parent = await this.menuRepository.findOne({
         where: { id: updateMenuDto.parentId },
       });
@@ -110,13 +150,7 @@ export class MenuService {
       }
     }
 
-    // Explicitly handle parentId - if it's null/undefined, set to null in database
-    const updateData = {
-      ...updateMenuDto,
-      parentId: updateMenuDto.parentId || null, // Ensure null for top-level
-    };
-
-    await this.menuRepository.update(id, updateData);
+    await this.menuRepository.update(id, updateMenuDto);
     return this.findOne(id);
   }
 
@@ -144,53 +178,6 @@ export class MenuService {
     await Promise.all(updatePromises);
   }
 
-  async updateMenuOrder(
-    reorderData: { id: number; sortOrder: number; parentId?: number }[],
-  ): Promise<void> {
-    // Use transaction to ensure data consistency
-    await this.menuRepository.manager.transaction(async (manager) => {
-      const updatePromises = reorderData.map(({ id, sortOrder, parentId }) =>
-        manager.update(Menu, id, {
-          sortOrder,
-          parentId: parentId || null,
-        }),
-      );
-      await Promise.all(updatePromises);
-    });
-  }
-
-  async findByPath(path: string): Promise<Menu> {
-    const pathSegments = path.split('/').filter(Boolean);
-
-    if (pathSegments.length === 1) {
-      // Single level path
-      return this.findByUrl(pathSegments[0]);
-    }
-
-    // Multi-level path - find by traversing hierarchy
-    let currentMenu: Menu | null = null;
-
-    for (const segment of pathSegments) {
-      if (!currentMenu) {
-        // Find root level menu
-        currentMenu = await this.menuRepository.findOne({
-          where: { url: segment, parentId: null },
-          relations: ['children'],
-        });
-      } else {
-        // Find child menu
-        currentMenu =
-          currentMenu.children?.find((child) => child.url === segment) || null;
-      }
-
-      if (!currentMenu) {
-        throw new NotFoundException(`Menu path "${path}" not found`);
-      }
-    }
-
-    return currentMenu;
-  }
-
   async seedDefaultMenus(): Promise<void> {
     const existingMenus = await this.menuRepository.count();
     if (existingMenus > 0) return;
@@ -200,33 +187,32 @@ export class MenuService {
       {
         name: '절재 김종서 장군',
         url: 'about-general',
-        description:
-          '조선 전기 명재상이자 무장인 김종서 장군의 생애와 업적을 살펴봅니다.',
         sortOrder: 1,
         type: 'section',
+        description:
+          '조선 초기의 명재상이자 무장인 김종서 장군의 생애와 업적을 소개합니다.',
       },
       {
         name: '기념사업회',
         url: 'organization',
-        description:
-          '김종서 장군을 기리는 기념사업회의 설립목적과 주요 활동을 소개합니다.',
         sortOrder: 2,
         type: 'section',
+        description:
+          '김종서장군기념사업회의 설립 목적과 주요 활동을 안내합니다.',
       },
       {
         name: '자료실',
         url: 'library',
-        description:
-          '김종서 장군과 관련된 학술자료, 보도자료, 사진 등을 제공합니다.',
         sortOrder: 3,
         type: 'section',
+        description: '김종서 장군과 관련된 각종 자료와 연구 성과를 제공합니다.',
       },
       {
         name: '연락처 & 오시는 길',
         url: 'contact',
-        description: '기념사업회 사무국 연락처와 찾아오시는 방법을 안내합니다.',
         sortOrder: 4,
         type: 'page',
+        description: '기념사업회 위치와 연락처 정보를 안내합니다.',
       },
     ];
 
@@ -241,34 +227,32 @@ export class MenuService {
       {
         name: '생애 및 업적',
         url: 'life',
-        description:
-          '김종서 장군의 출생부터 역사적 업적까지 상세한 생애를 소개합니다.',
         parentId: createdMenus[0].id,
         sortOrder: 1,
+        description:
+          '김종서 장군의 생애와 주요 업적을 연대순으로 정리했습니다.',
       },
       {
         name: '역사적 의의',
         url: 'significance',
-        description:
-          '조선 전기 정치사에서 김종서 장군이 가지는 특별한 의미를 분석합니다.',
         parentId: createdMenus[0].id,
         sortOrder: 2,
+        description:
+          '조선 역사에서 김종서 장군이 갖는 의미와 영향을 분석합니다.',
       },
       {
         name: '관련 사료 및 연구',
         url: 'sources',
-        description:
-          '김종서 장군과 관련된 역사 사료와 최신 연구 성과를 모았습니다.',
         parentId: createdMenus[0].id,
         sortOrder: 3,
+        description: '김종서 장군 관련 사료와 학술 연구 자료를 모았습니다.',
       },
       {
         name: '사진·영상 자료',
         url: 'photos',
-        description:
-          '김종서 장군 관련 유적지, 문화재 등의 사진과 영상 자료입니다.',
         parentId: createdMenus[0].id,
         sortOrder: 4,
+        description: '김종서 장군과 관련된 사진, 영상 자료를 제공합니다.',
       },
     ];
 
@@ -277,41 +261,38 @@ export class MenuService {
       {
         name: '사업회 소개',
         url: 'overview',
-        description:
-          '김종서장군기념사업회의 설립 목적과 주요 사업을 소개합니다.',
         parentId: createdMenus[1].id,
         sortOrder: 1,
+        description: '기념사업회의 설립 배경과 목적을 소개합니다.',
       },
       {
         name: '회장 인사말',
         url: 'chairman',
-        description:
-          '김종서장군기념사업회 회장의 인사말과 비전을 전해드립니다.',
         parentId: createdMenus[1].id,
         sortOrder: 2,
+        description: '기념사업회 회장의 인사말을 전합니다.',
       },
       {
         name: '연혁',
         url: 'history',
-        description:
-          '기념사업회의 설립부터 현재까지의 주요 연혁을 정리했습니다.',
         parentId: createdMenus[1].id,
         sortOrder: 3,
+        description: '기념사업회의 설립부터 현재까지의 주요 연혁입니다.',
       },
       {
         name: '선양사업',
         url: 'projects',
-        description:
-          '김종서 장군의 정신을 기리는 다양한 선양사업을 소개합니다.',
         parentId: createdMenus[1].id,
         sortOrder: 4,
+        description:
+          '김종서 장군의 정신을 기리는 다양한 선양사업을 소개합니다.',
       },
       {
         name: '공지사항',
         url: 'announcements',
-        description: '기념사업회의 최신 소식과 중요한 공지사항을 확인하세요.',
         parentId: createdMenus[1].id,
         sortOrder: 5,
+        description: '기념사업회의 주요 소식과 공지사항을 확인하세요.',
       },
     ];
 
@@ -320,24 +301,23 @@ export class MenuService {
       {
         name: '보도자료',
         url: 'press',
-        description: '기념사업회 활동과 관련된 언론 보도자료를 모았습니다.',
         parentId: createdMenus[2].id,
         sortOrder: 1,
+        description: '기념사업회 관련 언론 보도자료를 모았습니다.',
       },
       {
         name: '학술 자료·연구 보고서',
         url: 'academic',
-        description: '김종서 장군 관련 학술 논문과 연구 보고서를 제공합니다.',
         parentId: createdMenus[2].id,
         sortOrder: 2,
+        description: '김종서 장군 관련 학술 연구 자료와 보고서입니다.',
       },
       {
         name: '사진·영상 아카이브',
         url: 'archive',
-        description:
-          '역사적 가치가 있는 사진과 영상 자료를 체계적으로 보관합니다.',
         parentId: createdMenus[2].id,
         sortOrder: 3,
+        description: '기념사업회 활동과 관련된 사진, 영상 아카이브입니다.',
       },
     ];
 
@@ -353,6 +333,6 @@ export class MenuService {
       ),
     ]);
 
-    console.log('Default menu structure with descriptions created');
+    console.log('Default menu structure created with descriptions');
   }
 }

@@ -1,4 +1,4 @@
-// src/menu/menu.controller.ts
+// src/menu/menu.controller.ts - Updated with path support
 import {
   Controller,
   Get,
@@ -40,6 +40,12 @@ export class MenuController {
     return this.menuService.findByUrl(url);
   }
 
+  // NEW: Get menu by path (supports nested paths like "about/history")
+  @Get('by-path/:path(*)')
+  findByPath(@Param('path') path: string) {
+    return this.menuService.findByPath(path);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.menuService.findOne(id);
@@ -70,18 +76,5 @@ export class MenuController {
   @Post('seed')
   seedDefaultMenus() {
     return this.menuService.seedDefaultMenus();
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Patch('reorder')
-  updateMenuOrder(
-    @Body() reorderData: { id: number; sortOrder: number; parentId?: number }[],
-  ) {
-    return this.menuService.updateMenuOrder(reorderData);
-  }
-
-  @Get('by-path/:path')
-  findByPath(@Param('path') path: string) {
-    return this.menuService.findByPath(path);
   }
 }

@@ -1,4 +1,4 @@
-// src/content/content.service.ts
+// src/content/content.service.ts - Updated with menu path support
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -7,6 +7,7 @@ import {
   ContentType,
   PublishStatus,
 } from '../entities/content.entity';
+import { Menu } from '../entities/menu.entity';
 import { CreateContentDto } from './dto/create-content.dto';
 import { UpdateContentDto } from './dto/update-content.dto';
 
@@ -15,6 +16,8 @@ export class ContentService {
   constructor(
     @InjectRepository(Content)
     private contentRepository: Repository<Content>,
+    @InjectRepository(Menu)
+    private menuRepository: Repository<Menu>,
   ) {}
 
   async create(createContentDto: CreateContentDto): Promise<Content> {
@@ -90,27 +93,67 @@ export class ContentService {
     return queryBuilder.getMany();
   }
 
+  // NEW: Find content by menu path (supports nested menu structures)
   async findByMenuPath(path: string): Promise<Content[]> {
     const pathSegments = path.split('/').filter(Boolean);
 
-    const queryBuilder = this.contentRepository
-      .createQueryBuilder('content')
-      .leftJoinAndSelect('content.menu', 'menu')
-      .where('content.status = :status', { status: PublishStatus.PUBLISHED });
+    // Find the target menu by following the path
+    let currentMenu: Menu | null = null;
 
-    if (pathSegments.length === 1) {
-      // Single level - find by direct menu URL
-      queryBuilder.andWhere('menu.url = :url', { url: pathSegments[0] });
-    } else {
-      // Multi-level - need to traverse the path
-      // For now, we'll use the last segment as the menu URL
-      // This could be enhanced to support full path traversal
-      queryBuilder.andWhere('menu.url = :url', {
-        url: pathSegments[pathSegments.length - 1],
-      });
+    for (let i = 0; i < pathSegments.length; i++) {
+      const segment = pathSegments[i];
+
+      if (i === 0) {
+        // Find root menu
+        currentMenu = await this.menuRepository.findOne({
+          where: { url: segment, parentId: null },
+          relations: ['children'],
+        });
+      } else {
+        // Find child menu
+        if (currentMenu && currentMenu.children) {
+          currentMenu =
+            currentMenu.children.find((child) => child.url === segment) || null;
+        }
+      }
+
+      if (!currentMenu) {
+        return []; // Path not found
+      }
     }
 
-    return queryBuilder
+    if (!currentMenu) {
+      return [];
+    }
+
+    // Get all content for this menu and its children
+    const menuIds = [currentMenu.id];
+
+    // Add child menu IDs recursively
+    const addChildMenuIds = (menu: Menu) => {
+      if (menu.children) {
+        menu.children.forEach((child) => {
+          menuIds.push(child.id);
+          addChildMenuIds(child);
+        });
+      }
+    };
+
+    // Load full menu with children to get all nested IDs
+    const fullMenu = await this.menuRepository.findOne({
+      where: { id: currentMenu.id },
+      relations: ['children', 'children.children'], // Load nested children
+    });
+
+    if (fullMenu) {
+      addChildMenuIds(fullMenu);
+    }
+
+    return this.contentRepository
+      .createQueryBuilder('content')
+      .leftJoinAndSelect('content.menu', 'menu')
+      .where('content.menuId IN (:...menuIds)', { menuIds })
+      .andWhere('content.status = :status', { status: PublishStatus.PUBLISHED })
       .orderBy('content.sortOrder', 'ASC')
       .addOrderBy('content.createdAt', 'DESC')
       .getMany();

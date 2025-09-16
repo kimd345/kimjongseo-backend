@@ -53,7 +53,8 @@ export class ContentController {
     return this.contentService.findBySlug(menuUrl);
   }
 
-  @Get('by-menu-path/:path')
+  // NEW: Get content by menu path (for dynamic pages)
+  @Get('by-menu-path/:path(*)')
   findByMenuPath(@Param('path') path: string) {
     return this.contentService.findByMenuPath(path);
   }
